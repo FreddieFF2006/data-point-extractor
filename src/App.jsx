@@ -54,7 +54,7 @@ function getSentence(text, pos) {
   let end = pos;
   while (end < text.length && !/[.!?\n]/.test(text[end])) end++;
   if (end < text.length) end++;
-  return text.substring(start, end).replace(/\s+/g, " ").trim().substring(0, 400);
+  return text.substring(start, end).replace(/\s+/g, " ").trim().substring(0, 150);
 }
 
 async function extractCandidates(file, onProgress) {
@@ -88,8 +88,8 @@ async function extractCandidates(file, onProgress) {
 }
 
 async function classifyBatch(batch, apiKey) {
-  const lines = batch.map((c) => `ID:${c.id} | Number: ${c.number} | Sentence: "${c.sentence.substring(0, 250)}"`);
-  const userMsg = "Classify these candidates. Return ONLY a JSON array of IDs that are data points.\n\n" + lines.join("\n");
+  const lines = batch.map((c) => `ID:${c.id} | ${c.number} | "${c.sentence.substring(0, 120)}"`);
+  const userMsg = "Classify these. Return JSON array of IDs that ARE data points.\n\n" + lines.join("\n");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
@@ -117,7 +117,7 @@ export default function App() {
   const [fileName, setFileName] = useState("");
   const [fileObj, setFileObj] = useState(null);
   const [search, setSearch] = useState("");
-  const [batchSize, setBatchSize] = useState(80);
+  const [batchSize, setBatchSize] = useState(30);
   const logRef = useRef(null);
 
   const addLog = useCallback((msg) => setLog((p) => [...p, `[${new Date().toLocaleTimeString()}] ${msg}`]), []);
@@ -156,12 +156,12 @@ export default function App() {
         } catch (err) {
           addLog(`    ✗ ${err.message}`);
           if (err.message.includes("429") || err.message.toLowerCase().includes("rate")) {
-            addLog("    Waiting 30s for rate limit...");
-            await new Promise((r) => setTimeout(r, 30000));
+            addLog("    Waiting 60s for rate limit...");
+            await new Promise((r) => setTimeout(r, 60000));
             try { const ids = await classifyBatch(batch, apiKey); ids.forEach((id) => allIds.add(id)); addLog(`    → Retry: ${ids.length} data points`); } catch (e2) { addLog(`    ✗ Retry failed: ${e2.message}`); }
           }
         }
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 5000));
       }
       setDataPointIds(allIds); setStatus("done");
       addLog(`\nDone: ${allIds.size} data points from ${cands.length} candidates (${((1 - allIds.size / cands.length) * 100).toFixed(0)}% rejected)`);
@@ -229,7 +229,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#52525b" }}>
               <span>Batch size:</span>
               <select value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} style={{ background: "#0f0f14", border: "1px solid #27272a", borderRadius: 6, padding: "3px 8px", color: "#a1a1aa", fontSize: 12 }}>
-                {[40, 60, 80, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+                {[15, 20, 30, 50].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
             {(status === "stage1" || status === "stage2") && (
