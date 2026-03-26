@@ -4,18 +4,41 @@ import * as pdfjsLib from "pdfjs-dist";
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 // ─── PROMPT ──────────────────────────────────────────────────
-const SYS = `You classify candidate numbers from a corporate report.
-For each candidate: the number + full sentence. Decide if it's a DATA POINT, and categorise as E (Environment), S (Social), G (Governance), O (Other).
+const SYS = `You are a strict, consistent classifier of numerical data points in corporate reports. Apply the SAME rules every time without variation.
 
-DATA POINT = measurable metric (KPI, target, achievement, count, %, monetary, environmental, ratio).
-E = emissions, energy, water, waste, recycling, carbon, climate, biodiversity, MW, TJ, m³
-S = employees, diversity, safety, training, community, human rights, wages, hours, donations, accessibility
-G = board, directors, committees, compensation, audit, compliance, shareholders, shares, voting, ethics
-O = financial (revenue, profit), general corporate, anything not clearly E/S/G
+TASK: For each candidate (number + sentence), decide if it is a DATA POINT. If yes, assign category E/S/G/O.
 
-NOT data points: years/dates, page numbers, ISO standards, Scope/Class/SDG labels, product models, footnotes, GRI/SASB codes, addresses, raw table data, structural numbers.
+A DATA POINT is a specific numerical figure that MEASURES something. It must be a metric, KPI, target, count, percentage, monetary amount, or ratio that would be verified year-over-year.
 
-Return ONLY JSON: [{"id":N,"cat":"E"},...]  — data points only. No markdown.`;
+STRICT RULES — always include:
+1. ANY percentage in a performance/target context
+2. ANY count of people, sites, countries, organizations
+3. ANY monetary amount (yen, USD, EUR, billion, million)
+4. ANY environmental measurement (tons, MW, TJ, m3, kWh, degrees C)
+5. ANY ratio like 1:53 or 1:210
+6. Share counts, shareholder counts, board member counts
+
+ALWAYS EXCLUDE — these are NEVER data points:
+1. Years: ANY 4-digit number 1900-2059 used as a year
+2. Dates: "March 31", "fiscal year 2023", FY2023
+3. Page numbers, section numbers, TOC references
+4. ISO/standard numbers: 14001, 45001, 9001
+5. Labels: "Scope 1", "Class 3", "SDG 13", "Category 2"
+6. Product names: "PlayStation 5"
+7. Footnote markers after asterisks
+8. GRI/SASB codes (like "302-1", "305-1")
+9. Address/postal numbers
+10. Bullet/section numbering
+11. Raw datasheet tables with no narrative sentence
+
+CATEGORIES:
+E (Environment) = emissions, energy, water, waste, recycling, renewable, carbon, climate, biodiversity, metric tons, MW, TJ, m3
+S (Social) = employees, diversity, safety, training, community, human rights, wages, hours, donations, accessibility, health
+G (Governance) = board, directors, committees, compensation, audit, compliance, shareholders, shares, voting, ethics
+O (Other) = financial results, revenue, general corporate, anything not clearly E/S/G
+
+Return ONLY a JSON array of data points: [{"id":1,"cat":"E"},{"id":5,"cat":"S"},...]
+No markdown. No explanation. Just the array.`;
 
 // ─── EXTRACTION ──────────────────────────────────────────────
 const NR = /(\d+(?:,\d{3})*(?:\.\d+)?)/g;
@@ -56,10 +79,10 @@ async function extract(file, onP) {
 
 // ─── AI ──────────────────────────────────────────────────────
 async function classify(batch, key) {
-  const msg = "Classify. Return JSON [{id,cat}] for data points only.\n\n" + batch.map(c => `ID:${c.id} | ${c.number} | "${c.sentence.substring(0,250)}"`).join("\n");
+  const msg = "Classify each candidate strictly. Return ONLY a JSON array of {id,cat} for items that ARE data points. Omit everything else. Be consistent — if a number is a measurable metric, include it. If it is a year, date, page number, label, or structural number, omit it.\n\n" + batch.map(c => `ID:${c.id} | ${c.number} | "${c.sentence.substring(0,250)}"`).join("\n");
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4000, system: SYS, messages: [{ role: "user", content: msg }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4000, temperature: 0, system: SYS, messages: [{ role: "user", content: msg }] }),
   });
   if (!r.ok) throw new Error(`API ${r.status}: ${(await r.text()).substring(0,200)}`);
   let tx = (await r.json()).content?.[0]?.text || "[]";
